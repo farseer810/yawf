@@ -18,9 +18,22 @@ func defaultRouterReturnHandler() RouterReturnHandler {
 	return func(ctx Context, vals []reflect.Value) {
 		rv := ctx.Get(inject.InterfaceOf((*http.ResponseWriter)(nil)))
 		res := rv.Interface().(http.ResponseWriter)
-		var responseVal reflect.Value
-		if len(vals) > 1 && vals[0].Kind() == reflect.Int {
-			res.WriteHeader(int(vals[0].Int()))
+		if len(vals) == 0 || len(vals) >= 1 && vals[0].Kind() == reflect.Bool && vals[0].Bool() {
+			return
+		}
+		if len(vals) == 1 && vals[0].Kind() == reflect.Bool && !vals[0].Bool() {
+			res.Write([]byte(""))
+			ctx.Stop()
+			return
+		}
+
+		var responseVal reflect.Value = reflect.ValueOf("")
+		if len(vals) > 1 {
+			var status int = 200
+			if vals[0].Kind() == reflect.Int {
+				status = int(vals[0].Int())
+			}
+			res.WriteHeader(status)
 			responseVal = vals[1]
 		} else if len(vals) > 0 {
 			responseVal = vals[0]
@@ -28,6 +41,7 @@ func defaultRouterReturnHandler() RouterReturnHandler {
 		if canDeref(responseVal) {
 			responseVal = responseVal.Elem()
 		}
+
 		if isByteSlice(responseVal) {
 			res.Write(responseVal.Bytes())
 		} else if isString(responseVal) {

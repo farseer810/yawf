@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync/atomic"
+	"time"
 )
 
 type Handler interface{}
@@ -24,6 +26,8 @@ type YawfServer interface {
 
 	SetLogger(*log.Logger)
 	Logger() *log.Logger
+
+	Stop()
 }
 
 type yawf struct {
@@ -33,6 +37,12 @@ type yawf struct {
 	listener *net.Listener
 	logger   *log.Logger
 	address  string
+
+	// keep trace on the number of current active request
+	activeCount int32
+	cClose      chan bool
+
+	isStopping bool
 }
 
 type classicYawf struct {
@@ -48,6 +58,7 @@ const (
 func New() YawfServer {
 	r := NewRouter()
 	y := &yawf{Injector: inject.New(), logger: log.New(os.Stdout, "[yawf] ", 0), action: func() {}}
+	y.cClose = make(chan bool, 1)
 	y.SetLogger(y.logger)
 	y.Map(defaultRouterReturnHandler())
 	y.Map(defaultMiddlewareReturnHandler())
@@ -67,7 +78,9 @@ func (s *yawf) Run() error {
 		return errors.New("failed to run server before listening")
 	}
 	server := &http.Server{Addr: s.Address(), Handler: s}
-	return server.Serve(s.Listener())
+	err := server.Serve(s.Listener())
+	<-s.cClose
+	return err
 }
 
 func (s *yawf) RunOnAddress(address string) error {
@@ -77,6 +90,11 @@ func (s *yawf) RunOnAddress(address string) error {
 		return err
 	}
 	return s.Run()
+}
+
+func (s *yawf) Stop() {
+	s.isStopping = true
+	s.Listener().Close()
 }
 
 func (s *yawf) Use(handler Handler) {
@@ -124,7 +142,13 @@ func (s *yawf) Logger() *log.Logger {
 
 // ServeHTTP is the HTTP Entry point for a yawf instance. Useful if you want to control your own HTTP server.
 func (s *yawf) ServeHTTP(res http.ResponseWriter, req *http.Request) {
+	atomic.AddInt32(&s.activeCount, 1)
 	s.CreateContext(res, req).Next()
+	activeCount := atomic.AddInt32(&s.activeCount, -1)
+	if s.isStopping && activeCount == 0 {
+		time.Sleep(1 * time.Second)
+		s.cClose <- true
+	}
 }
 
 func (s *yawf) CreateContext(res http.ResponseWriter, req *http.Request) Context {

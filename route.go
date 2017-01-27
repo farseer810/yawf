@@ -171,7 +171,6 @@ func (r *routeContext) run() {
 			ev := r.Get(reflect.TypeOf(RouterReturnHandler(nil)))
 			handleReturn := ev.Interface().(RouterReturnHandler)
 			handleReturn(r, vals)
-			return
 		}
 
 		if r.Written() {
