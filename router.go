@@ -6,7 +6,7 @@ import (
 )
 
 // Params is a map of name/value pairs for named routes. An instance of yawf.Params is available to be injected into any route handler.
-type Params map[string]string
+type PathParams map[string]string
 
 // Routes is a helper service for Yawf's routing layer.
 type Routes interface {
@@ -176,8 +176,9 @@ func (r *router) Handle(res http.ResponseWriter, req *http.Request, context Cont
 		}
 	}
 	if bestMatch != NoMatch {
-		params := Params(bestVals)
+		params := PathParams(bestVals)
 		context.Map(params)
+
 		bestRoute.Handle(context, res)
 		return
 	}

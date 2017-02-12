@@ -6,10 +6,16 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 )
+
+type Headers map[string]string
+type QueryParams url.Values
+type FormParams url.Values
 
 type Handler interface{}
 
@@ -28,6 +34,7 @@ type YawfServer interface {
 	Logger() *log.Logger
 
 	Stop()
+	SetGracefulDelay(time.Duration)
 }
 
 type yawf struct {
@@ -42,7 +49,8 @@ type yawf struct {
 	activeCount int32
 	cClose      chan bool
 
-	isStopping bool
+	isStopping    bool
+	gracefulDelay time.Duration
 }
 
 type classicYawf struct {
@@ -59,6 +67,7 @@ func New() YawfServer {
 	r := NewRouter()
 	y := &yawf{Injector: inject.New(), logger: log.New(os.Stdout, "[yawf] ", 0), action: func() {}}
 	y.cClose = make(chan bool, 1)
+	y.gracefulDelay = 3 * time.Second
 	y.SetLogger(y.logger)
 	y.Map(defaultRouterReturnHandler())
 	y.Map(defaultMiddlewareReturnHandler())
@@ -92,9 +101,16 @@ func (s *yawf) RunOnAddress(address string) error {
 	return s.Run()
 }
 
+func (s *yawf) SetGracefulDelay(delay time.Duration) {
+	s.gracefulDelay = delay
+}
+
 func (s *yawf) Stop() {
 	s.isStopping = true
 	s.Listener().Close()
+	if s.activeCount == 0 {
+		s.cClose <- true
+	}
 }
 
 func (s *yawf) Use(handler Handler) {
@@ -142,11 +158,10 @@ func (s *yawf) Logger() *log.Logger {
 
 // ServeHTTP is the HTTP Entry point for a yawf instance. Useful if you want to control your own HTTP server.
 func (s *yawf) ServeHTTP(res http.ResponseWriter, req *http.Request) {
-	atomic.AddInt32(&s.activeCount, 1)
 	s.CreateContext(res, req).Next()
 	activeCount := atomic.AddInt32(&s.activeCount, -1)
 	if s.isStopping && activeCount == 0 {
-		time.Sleep(1 * time.Second)
+		time.Sleep(s.gracefulDelay)
 		s.cClose <- true
 	}
 }
@@ -155,5 +170,20 @@ func (s *yawf) CreateContext(res http.ResponseWriter, req *http.Request) Context
 	c := NewContext(s.handlers, s.action, res)
 	c.SetParent(s)
 	c.Map(req)
+
+	headers := make(Headers)
+	for key, values := range req.Header {
+		headers[key] = strings.Join(values, ", ")
+	}
+	c.Map(headers)
+
+	req.ParseMultipartForm(1024 * 4)
+	query, _ := url.ParseQuery(req.URL.RawQuery)
+	queryParams := QueryParams(query)
+	c.Map(queryParams)
+
+	formParams := FormParams(req.PostForm)
+	c.Map(formParams)
+
 	return c
 }
