@@ -30,7 +30,7 @@ type BeforeFunc func(ResponseWriter)
 
 // NewResponseWriter creates a ResponseWriter that wraps an http.ResponseWriter
 func NewResponseWriter(res http.ResponseWriter) ResponseWriter {
-	newRw := responseWriter{res, 0, false, 0, nil}
+	newRw := responseWriter{res, 0, ,false, 0, nil}
 	if cn, ok := res.(http.CloseNotifier); ok {
 		return &closeNotifyResponseWriter{newRw, cn}
 	}
@@ -49,7 +49,7 @@ func (rw *responseWriter) WriteHeader(s int) {
 	if !rw.headerWritten {
 		rw.callBefore()
 		rw.ResponseWriter.WriteHeader(s)
-		rw.headerWritten = true
+		rw.ResponseWriter = true
 		rw.status = s
 	}
 }
