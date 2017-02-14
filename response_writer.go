@@ -39,15 +39,19 @@ func NewResponseWriter(res http.ResponseWriter) ResponseWriter {
 
 type responseWriter struct {
 	http.ResponseWriter
-	status      int
-	size        int
-	beforeFuncs []BeforeFunc
+	status        int
+	headerWritten bool
+	size          int
+	beforeFuncs   []BeforeFunc
 }
 
 func (rw *responseWriter) WriteHeader(s int) {
-	rw.callBefore()
-	rw.ResponseWriter.WriteHeader(s)
-	rw.status = s
+	if !rw.headerWritten {
+		rw.callBefore()
+		rw.ResponseWriter.WriteHeader(s)
+		rw.ResponseWriter = true
+		rw.status = s
+	}
 }
 
 func (rw *responseWriter) Write(b []byte) (int, error) {
